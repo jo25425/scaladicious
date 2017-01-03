@@ -171,4 +171,19 @@ object Kmeans {
     norm(a-b, 2)
   }
 
+  /**
+    * Compute haversine distance (spherical)
+    */
+  val haversine = (a: Vector[Double], b: Vector[Double]) => {
+    // When using haversine the vectors can only have length two, since we are dealing with lats and lons
+    assert(a.length == 2 && b.length == 2)
+    val R = 6372.8  //earth radius in km
+    val dLat=(b(0) - a(0)).toRadians
+    val dLon=(b(1) - a(0)).toRadians
+
+    val h = pow(sin(dLat/2),2) + pow(sin(dLon/2),2) * cos(a(0).toRadians) * cos(b(0).toRadians)
+    val c = 2 * asin(sqrt(a))
+    R * c
+  }
+
 }
