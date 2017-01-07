@@ -182,7 +182,7 @@ object Kmeans {
     val dLon=(b(1) - a(1)).toRadians
 
     val h = pow(sin(dLat/2),2) + pow(sin(dLon/2),2) * cos(a(0).toRadians) * cos(b(0).toRadians)
-    val c = 2 * asin(sqrt(a))
+    val c = 2 * asin(sqrt(h))
     R * c
   }
 

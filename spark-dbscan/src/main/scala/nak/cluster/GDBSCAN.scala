@@ -88,7 +88,9 @@ object GDBSCAN {
 
     def points: Seq[Point[T]] = Seq(_points: _*)
 
-    override def toString() = s"Cluster [$id]\t:\t${_points.size} points\t${_points mkString "|"}"
+    override def toString() =
+      s"Cluster [$id]\t:\t${_points.size} points" +
+      s"${_points map("\n * " + _.toString()) mkString}"
   }
 
 }
