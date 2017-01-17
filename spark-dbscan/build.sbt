@@ -2,10 +2,10 @@ name := "spark-dbscan"
 
 version := "1.0"
 
-//scalaVersion := "2.11.8"
+scalaVersion := "2.11.8"
 
 libraryDependencies ++= {
-  val sparkVer = "2.0.1"
+  val sparkVer = "2.1.0"
   Seq(
     "org.apache.spark"     %% "spark-core"              % sparkVer withSources(),
     "org.apache.spark"     %% "spark-mllib"             % sparkVer withSources(),
