@@ -1,18 +1,14 @@
-import java.io.File
+import java.io.{BufferedWriter, File, FileWriter}
 
 import breeze.linalg.{*, Axis, DenseMatrix, DenseVector}
 import breeze.stats._
-import com.fasterxml.jackson.module.scala.OptionModule
-
 import math.Pi
 import nak.cluster.GDBSCAN.Cluster
 import nak.cluster._
 import org.apache.commons.io.FileUtils
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
-
 import sys.exit
 
 
@@ -80,6 +76,7 @@ object Worker {
     val tweetLocationsPath = new File(outputDir, "tweet_locations").toString()
     val authorLocationsPath = new File(outputDir, "author_locations").toString()
     val predictionsPath = new File(outputDir, "predictions").toString()
+    val resultsPath = new File(outputDir, "results.txt").toString()
     val distance = if (distanceString == "haversine") Kmeans.haversine else Kmeans.euclideanDistance
 
     val sparkSession = SparkSession.builder()
@@ -106,31 +103,32 @@ object Worker {
 
 
     // Predict author locations from tweet locations
-    val epsilon = 1.0E-5
-    val minPoints = 1
-    val config = (minPoints, epsilon, centreMethod, distance)
-
-    val predictionsRdd: RDD[(Long, Seq[(Double, Double)])] =
-      if ((reuse matches "predictions|all")
-        && new java.io.File(predictionsPath).exists)
-        loadPredictions(sparkSession, predictionsPath)
-      else
-        predict(tweetLocationsRdd, predictionsPath, config)
+//    val epsilon = 1.0E-5
+//    val minPoints = 1
+//    val config = (minPoints, epsilon, centreMethod, distance)
+//
+//    val predictionsRdd: RDD[(Long, Seq[(Double, Double)])] =
+//      if ((reuse matches "predictions|all")
+//        && new java.io.File(predictionsPath).exists)
+//        loadPredictions(sparkSession, predictionsPath)
+//      else
+//        predict(tweetLocationsRdd, predictionsPath, config)
 
 
     // Evaluation
-    val score = evaluate(authorLocationsRdd, predictionsRdd, distance)
-    println("Average distance to actual author location: %.5f km"
-      .format(if (distance == Kmeans.euclideanDistance) toKilometers(score) else score))
-    val countPredicted: Double = predictionsRdd.count()
-    val countTotal: Double = authorLocationsRdd.count()
-    val pct = countPredicted / countTotal * 100f
-    println(s"Predicted $countPredicted of total $countTotal")
-    println(s"Percentage predicted: $pct")
+//    val score = evaluate(authorLocationsRdd, predictionsRdd, distance)
+//    println("Average distance to actual author location: %.5f km"
+//      .format(if (distance == Kmeans.euclideanDistance) toKilometers(score) else score))
+//    val countPredicted: Double = predictionsRdd.count()
+//    val countTotal: Double = authorLocationsRdd.count()
+//    val pct = countPredicted / countTotal * 100f
+//    println(s"Predicted $countPredicted of total $countTotal")
+//    println(s"Percentage predicted: $pct")
 
-//    val (bestConfig, bestScore) = optimise(tweetLocationsRdd, authorLocationsRdd, method)
-//    println(s"\nBest config: ${bestConfig}")
-//    println(s"Best score: ${bestScore}")
+    val (bestConfig, bestScore) = optimise(tweetLocationsRdd, authorLocationsRdd,
+                                           (centreMethod, distance), resultsPath)
+    println(s"\nBest config: $bestConfig")
+    println(s"Best score: $bestScore")
 
   }
 
@@ -138,21 +136,26 @@ object Worker {
                authorLocationsRdd: RDD[(Long, (Double, Double))],
                optimiseConfig: (
                  String,
-                 (DenseVector[Double], DenseVector[Double]) => Double)):
+                 (DenseVector[Double], DenseVector[Double]) => Double),
+               resultsPath: String):
   ((Int, Double), (Double, Double)) = {
+
+    // Create FileWriter
+    val file = new File(resultsPath)
+    val bw = new BufferedWriter(new FileWriter(file))
 
     val (centreMethod, distance) = optimiseConfig
 
     // The hyperparameter space to try out
-    val epsilonChoices = List(1.0E-6, 1.0E-5, 1.0E-4)
-    val minPointsChoices = List(1, 2, 3, 5, 10, 12)
+    val epsilonChoices = List(1.0E-6, 1.0E-5, 1.0E-4, 1.0E-3)
+    val minPointsChoices = List(1, 2, 3, 5, 10)
 
     // Stores the most optimal configuration
     var bestParams = (0, 0.0)
-    var bestScores = (1000.0, 0.0)
+    var bestScores = (1E12, 0.0)
 
     def combineScores(scores: (Double, Double)): Double =
-      (if (scores._1 != 0) 1 / 1 + scores._1 else 0) + scores._2 / 100
+     1 / (1 + scores._1) + scores._2 / 100
 
     // Iterate through possible parameter space
     for {
@@ -169,7 +172,8 @@ object Worker {
       val countPredicted: Double = predictionsRdd.count()
       val countTotal: Double = authorLocationsRdd.count()
       val pctPredicted = countPredicted / countTotal * 100f
-      println(f"[mL = $m, e = $e] Resulting score: $avgError%.2f average error, $pctPredicted%.2f predicted")
+      val text = f"[mL = $m, e = $e]\nAverage error: $avgError%.2f, Predicted: $pctPredicted%.2f"
+      println(text)
       println(combineScores(avgError, pctPredicted), combineScores(bestScores))
 
       if (pctPredicted > 0 &&
@@ -177,7 +181,11 @@ object Worker {
         bestParams = params
         bestScores = (avgError, pctPredicted)
       }
+
+      bw.write(text)
     }
+
+    bw.close()
 
     (bestParams, bestScores)
   }
@@ -267,7 +275,6 @@ object Worker {
 
     val minLocations = config._1
     val predictions = tweetLocationsRdd
-//      .filter(_._2.rows >= minLocations)
       .mapValues(locationsMatrix =>
         if (locationsMatrix.rows >= minLocations)
           runDbscan(locationsMatrix, config)
@@ -276,7 +283,7 @@ object Worker {
       )
 
     // Save predictions by user
-    if (outputPath.nonEmpty) {
+    if (outputPath != null && outputPath.nonEmpty) {
       FileUtils.deleteQuietly(new File(outputPath)) // Delete if already exists
       predictions.saveAsObjectFile(outputPath)
     }
